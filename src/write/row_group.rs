@@ -8,8 +8,8 @@ use parquet_format_safe::{ColumnChunk, RowGroup};
 use crate::{
     error::{Error, Result},
     metadata::{ColumnChunkMetaData, ColumnDescriptor},
-    page::CompressedPage,
 };
+use crate::write::column_chunk::ParquetColumn;
 
 #[cfg(feature = "async")]
 use super::column_chunk::write_column_chunk_async;
@@ -17,7 +17,7 @@ use super::column_chunk::write_column_chunk_async;
 use super::{
     column_chunk::write_column_chunk,
     page::{is_data_page, PageWriteSpec},
-    DynIter, DynStreamingIterator,
+    DynIter,
 };
 
 pub struct ColumnOffsetsMetadata {
@@ -83,7 +83,7 @@ pub fn write_row_group<
     writer: &mut W,
     mut offset: u64,
     descriptors: &[ColumnDescriptor],
-    columns: DynIter<'a, std::result::Result<DynStreamingIterator<'a, CompressedPage, E>, E>>,
+    columns: DynIter<'a, std::result::Result<ParquetColumn<'a, E>, E>>,
     ordinal: usize,
 ) -> Result<(RowGroup, Vec<Vec<PageWriteSpec>>, u64)>
 where
@@ -150,7 +150,7 @@ pub async fn write_row_group_async<
     writer: &mut W,
     mut offset: u64,
     descriptors: &[ColumnDescriptor],
-    columns: DynIter<'a, std::result::Result<DynStreamingIterator<'a, CompressedPage, E>, E>>,
+    columns: DynIter<'a, std::result::Result<ParquetColumn<'a, E>, E>>,
     ordinal: usize,
 ) -> Result<(RowGroup, Vec<Vec<PageWriteSpec>>, u64)>
 where

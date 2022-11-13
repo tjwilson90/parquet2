@@ -2,10 +2,10 @@ use std::collections::HashSet;
 use std::io::Write;
 
 use parquet_format_safe::thrift::protocol::{TCompactOutputProtocol, TOutputProtocol};
-use parquet_format_safe::{ColumnChunk, ColumnMetaData, Type};
+use parquet_format_safe::{BloomFilterAlgorithm, BloomFilterCompression, BloomFilterHash, BloomFilterHeader, ColumnChunk, ColumnMetaData, SplitBlockAlgorithm, Type, Uncompressed, XxHash};
 
 #[cfg(feature = "async")]
-use futures::AsyncWrite;
+use futures::{AsyncWrite, AsyncWriteExt};
 #[cfg(feature = "async")]
 use parquet_format_safe::thrift::protocol::{TCompactOutputStreamProtocol, TOutputStreamProtocol};
 
@@ -26,11 +26,16 @@ use super::page::{write_page, PageWriteSpec};
 use super::statistics::reduce;
 use super::DynStreamingIterator;
 
+pub struct ParquetColumn<'a, E> {
+    pub compressed_pages: DynStreamingIterator<'a, CompressedPage, E>,
+    pub bloom_filter: Vec<u8>,
+}
+
 pub fn write_column_chunk<'a, W, E>(
-    writer: &mut W,
+    mut writer: &mut W,
     mut offset: u64,
     descriptor: &ColumnDescriptor,
-    mut compressed_pages: DynStreamingIterator<'a, CompressedPage, E>,
+    mut column: ParquetColumn<'a, E>,
 ) -> Result<(ColumnChunk, Vec<PageWriteSpec>, u64)>
 where
     W: Write,
@@ -41,15 +46,32 @@ where
 
     let initial = offset;
 
+    let bloom_filter_offset = if !column.bloom_filter.is_empty() {
+        let header = BloomFilterHeader::new(
+            column.bloom_filter.len() as i32,
+            BloomFilterAlgorithm::BLOCK(SplitBlockAlgorithm::new()),
+            BloomFilterHash::XXHASH(XxHash::new()),
+            BloomFilterCompression::UNCOMPRESSED(Uncompressed::new())
+        );
+        let mut protocol = TCompactOutputProtocol::new(&mut writer);
+        offset += header.write_to_out_protocol(&mut protocol)? as u64;
+        protocol.flush()?;
+        writer.write_all(&column.bloom_filter)?;
+        offset += column.bloom_filter.len() as u64;
+        Some(initial as i64)
+    } else {
+        None
+    };
+
     let mut specs = vec![];
-    while let Some(compressed_page) = compressed_pages.next()? {
+    while let Some(compressed_page) = column.compressed_pages.next()? {
         let spec = write_page(writer, offset, compressed_page)?;
         offset += spec.bytes_written;
         specs.push(spec);
     }
     let mut bytes_written = offset - initial;
 
-    let column_chunk = build_column_chunk(&specs, descriptor)?;
+    let column_chunk = build_column_chunk(&specs, descriptor, bloom_filter_offset)?;
 
     // write metadata
     let mut protocol = TCompactOutputProtocol::new(writer);
@@ -66,10 +88,10 @@ where
 #[cfg(feature = "async")]
 #[cfg_attr(docsrs, doc(cfg(feature = "async")))]
 pub async fn write_column_chunk_async<W, E>(
-    writer: &mut W,
+    mut writer: &mut W,
     mut offset: u64,
     descriptor: &ColumnDescriptor,
-    mut compressed_pages: DynStreamingIterator<'_, CompressedPage, E>,
+    mut column: ParquetColumn<'_, E>,
 ) -> Result<(ColumnChunk, Vec<PageWriteSpec>, u64)>
 where
     W: AsyncWrite + Unpin + Send,
@@ -77,16 +99,34 @@ where
     E: std::error::Error,
 {
     let initial = offset;
+
+    let bloom_filter_offset = if !column.bloom_filter.is_empty() {
+        let header = BloomFilterHeader::new(
+            column.bloom_filter.len() as i32,
+            BloomFilterAlgorithm::BLOCK(SplitBlockAlgorithm::new()),
+            BloomFilterHash::XXHASH(XxHash::new()),
+            BloomFilterCompression::UNCOMPRESSED(Uncompressed::new())
+        );
+        let mut protocol = TCompactOutputStreamProtocol::new(&mut writer);
+        offset += header.write_to_out_stream_protocol(&mut protocol).await? as u64;
+        protocol.flush().await?;
+        writer.write_all(&column.bloom_filter).await?;
+        offset += column.bloom_filter.len() as u64;
+        Some(initial as i64)
+    } else {
+        None
+    };
+
     // write every page
     let mut specs = vec![];
-    while let Some(compressed_page) = compressed_pages.next()? {
+    while let Some(compressed_page) = column.compressed_pages.next()? {
         let spec = write_page_async(writer, offset, compressed_page).await?;
         offset += spec.bytes_written;
         specs.push(spec);
     }
     let mut bytes_written = offset - initial;
 
-    let column_chunk = build_column_chunk(&specs, descriptor)?;
+    let column_chunk = build_column_chunk(&specs, descriptor, bloom_filter_offset)?;
 
     // write metadata
     let mut protocol = TCompactOutputStreamProtocol::new(writer);
@@ -104,6 +144,7 @@ where
 fn build_column_chunk(
     specs: &[PageWriteSpec],
     descriptor: &ColumnDescriptor,
+    bloom_filter_offset: Option<i64>,
 ) -> Result<ColumnChunk> {
     // compute stats to build header at the end of the chunk
 
@@ -198,7 +239,7 @@ fn build_column_chunk(
         dictionary_page_offset: None,
         statistics,
         encoding_stats: None,
-        bloom_filter_offset: None,
+        bloom_filter_offset,
     };
 
     Ok(ColumnChunk {

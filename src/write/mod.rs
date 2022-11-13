@@ -21,10 +21,10 @@ pub use file::{write_metadata_sidecar, FileWriter};
 
 pub use row_group::ColumnOffsetsMetadata;
 
-use crate::page::CompressedPage;
+pub use crate::write::column_chunk::ParquetColumn;
 
 pub type RowGroupIter<'a, E> =
-    DynIter<'a, std::result::Result<DynStreamingIterator<'a, CompressedPage, E>, E>>;
+    DynIter<'a, std::result::Result<ParquetColumn<'a, E>, E>>;
 
 /// Write options of different interfaces on this crate
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]

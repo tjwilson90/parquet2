@@ -14,7 +14,7 @@ use parquet2::schema::types::{ParquetType, PhysicalType};
 use parquet2::statistics::Statistics;
 #[cfg(feature = "async")]
 use parquet2::write::FileStreamer;
-use parquet2::write::{Compressor, DynIter, DynStreamingIterator, FileWriter, Version};
+use parquet2::write::{Compressor, DynIter, DynStreamingIterator, FileWriter, ParquetColumn, Version};
 use parquet2::{metadata::Descriptor, page::Page, write::WriteOptions};
 
 use super::Array;
@@ -88,6 +88,10 @@ fn test_column(column: &str, compression: CompressionOptions) -> Result<()> {
         compression,
         vec![],
     ));
+    let pages = ParquetColumn {
+        compressed_pages: pages,
+        bloom_filter: Vec::new(),
+    };
     let columns = std::iter::once(Ok(pages));
 
     let writer = Cursor::new(vec![]);
@@ -211,6 +215,10 @@ fn basic() -> Result<()> {
         CompressionOptions::Uncompressed,
         vec![],
     ));
+    let pages = ParquetColumn {
+        compressed_pages: pages,
+        bloom_filter: Vec::new(),
+    };
     let columns = std::iter::once(Ok(pages));
 
     let writer = Cursor::new(vec![]);
@@ -270,6 +278,10 @@ async fn test_column_async(column: &str, compression: CompressionOptions) -> Res
         compression,
         vec![],
     ));
+    let pages = ParquetColumn {
+        compressed_pages: pages,
+        bloom_filter: Vec::new(),
+    };
     let columns = std::iter::once(Ok(pages));
 
     let writer = futures::io::Cursor::new(vec![]);

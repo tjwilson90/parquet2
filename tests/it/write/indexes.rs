@@ -10,7 +10,7 @@ use parquet2::read::{
     read_columns_indexes, read_metadata, read_pages_locations, BasicDecompressor, IndexedPageReader,
 };
 use parquet2::schema::types::{ParquetType, PhysicalType, PrimitiveType};
-use parquet2::write::WriteOptions;
+use parquet2::write::{ParquetColumn, WriteOptions};
 use parquet2::write::{Compressor, DynIter, DynStreamingIterator, FileWriter, Version};
 
 use crate::read::collect;
@@ -45,6 +45,10 @@ fn write_file() -> Result<Vec<u8>> {
         CompressionOptions::Uncompressed,
         vec![],
     ));
+    let pages = ParquetColumn {
+        compressed_pages: pages,
+        bloom_filter: Vec::new(),
+    };
     let columns = std::iter::once(Ok(pages));
 
     let writer = Cursor::new(vec![]);
