@@ -52,7 +52,7 @@ impl RowGroupMetaData {
     }
 
     /// Method to convert from Thrift.
-    pub(crate) fn try_from_thrift(
+    pub fn try_from_thrift(
         schema_descr: &SchemaDescriptor,
         rg: RowGroup,
     ) -> Result<RowGroupMetaData> {

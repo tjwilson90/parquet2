@@ -78,7 +78,7 @@ impl SchemaDescriptor {
         }
     }
 
-    pub(crate) fn try_from_thrift(elements: &[SchemaElement]) -> Result<Self> {
+    pub fn try_from_thrift(elements: &[SchemaElement]) -> Result<Self> {
         let schema = ParquetType::try_from_thrift(elements)?;
         Self::try_from_type(schema)
     }
