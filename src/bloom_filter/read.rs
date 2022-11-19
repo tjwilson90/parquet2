@@ -5,20 +5,18 @@ use parquet_format_safe::{
     BloomFilterHeader, SplitBlockAlgorithm, Uncompressed,
 };
 
-use crate::{error::Error, metadata::ColumnChunkMetaData};
+use crate::error::Error;
 
 /// Reads the bloom filter associated to [`ColumnChunkMetaData`] into `bitset`.
 /// Results in an empty `bitset` if there is no associated bloom filter or the algorithm is not supported.
 /// # Error
 /// Errors if the column contains no metadata or the filter can't be read or deserialized.
 pub fn read<R: Read + Seek>(
-    column_metadata: &ColumnChunkMetaData,
+    bloom_filter_offset: Option<i64>,
     mut reader: &mut R,
     bitset: &mut Vec<u8>,
 ) -> Result<(), Error> {
-    let offset = column_metadata.metadata().bloom_filter_offset;
-
-    let offset = if let Some(offset) = offset {
+    let offset = if let Some(offset) = bloom_filter_offset {
         offset as u64
     } else {
         bitset.clear();
