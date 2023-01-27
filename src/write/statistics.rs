@@ -163,7 +163,7 @@ fn reduce_primitive<
         acc.max_value = reduce_single(
             acc.max_value,
             new.max_value,
-            |x, y| if x < y { x } else { y },
+            |x, y| if x > y { x } else { y },
         );
         acc.null_count = reduce_single(acc.null_count, new.null_count, |x, y| x + y);
         acc.distinct_count = None;
