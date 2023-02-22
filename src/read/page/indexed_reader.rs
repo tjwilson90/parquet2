@@ -41,6 +41,9 @@ pub struct IndexedPageReader<R: Read + Seek> {
     pages: VecDeque<FilteredPage>,
 
     state: State,
+
+    // Maximum page size (compressed or uncompressed) to limit allocations
+    max_page_size: usize,
 }
 
 fn read_page<R: Read + Seek>(
@@ -49,6 +52,7 @@ fn read_page<R: Read + Seek>(
     length: usize,
     buffer: &mut Vec<u8>,
     data: &mut Vec<u8>,
+    max_page_size: usize,
 ) -> Result<ParquetPageHeader, Error> {
     // seek to the page
     reader.seek(SeekFrom::Start(start))?;
@@ -60,7 +64,7 @@ fn read_page<R: Read + Seek>(
 
     // deserialize [header]
     let mut reader = Cursor::new(buffer);
-    let page_header = read_page_header(&mut reader, 1024 * 1024)?;
+    let page_header = read_page_header(&mut reader, max_page_size)?;
     let header_size = reader.seek(SeekFrom::Current(0)).unwrap() as usize;
     let buffer = reader.into_inner();
 
@@ -78,8 +82,9 @@ fn read_dict_page<R: Read + Seek>(
     data: &mut Vec<u8>,
     compression: Compression,
     descriptor: &Descriptor,
+    max_page_size: usize
 ) -> Result<CompressedDictPage, Error> {
-    let page_header = read_page(reader, start, length, buffer, data)?;
+    let page_header = read_page(reader, start, length, buffer, data, max_page_size)?;
 
     let page = finish_page(page_header, data, compression, descriptor, None)?;
     if let CompressedPage::Dict(page) = page {
@@ -99,8 +104,9 @@ impl<R: Read + Seek> IndexedPageReader<R> {
         pages: Vec<FilteredPage>,
         buffer: Vec<u8>,
         data_buffer: Vec<u8>,
+        max_page_size: usize,
     ) -> Self {
-        Self::new_with_page_meta(reader, column.into(), pages, buffer, data_buffer)
+        Self::new_with_page_meta(reader, column.into(), pages, buffer, data_buffer, max_page_size)
     }
 
     /// Returns a new [`IndexedPageReader`] with [`PageMetaData`].
@@ -110,6 +116,7 @@ impl<R: Read + Seek> IndexedPageReader<R> {
         pages: Vec<FilteredPage>,
         buffer: Vec<u8>,
         data_buffer: Vec<u8>,
+        max_page_size: usize,
     ) -> Self {
         let pages = pages.into_iter().collect();
         Self {
@@ -121,6 +128,7 @@ impl<R: Read + Seek> IndexedPageReader<R> {
             data_buffer,
             pages,
             state: State::MaybeDict,
+            max_page_size,
         }
     }
 
@@ -138,7 +146,7 @@ impl<R: Read + Seek> IndexedPageReader<R> {
         // it will be read - take buffer
         let mut data = std::mem::take(&mut self.data_buffer);
 
-        let page_header = read_page(&mut self.reader, start, length, &mut self.buffer, &mut data)?;
+        let page_header = read_page(&mut self.reader, start, length, &mut self.buffer, &mut data, self.max_page_size)?;
 
         finish_page(
             page_header,
@@ -175,6 +183,7 @@ impl<R: Read + Seek> IndexedPageReader<R> {
             &mut data,
             self.compression,
             &self.descriptor,
+            self.max_page_size,
         );
         Some(maybe_page.map(CompressedPage::Dict))
     }
